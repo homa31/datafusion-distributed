@@ -65,6 +65,10 @@ extensions_options! {
         /// budget will still be admitted (otherwise we would livelock), so the actual peak per
         /// connection is `worker_connection_buffer_budget_bytes + max_message_size`.
         pub worker_connection_buffer_budget_bytes: usize, default = 64 * 1024 * 1024
+        /// TODO
+        pub dynamic_task_count: bool, default = false
+        /// TODO
+        pub bytes_per_partition_per_second: usize, default = 16 * 1024 * 1024
         /// Collection of [TaskEstimator]s that will be applied to leaf nodes in order to
         /// estimate how many tasks should be spawned for the [Stage] containing the leaf node.
         pub(crate) __private_task_estimator: CombinedTaskEstimator, default = CombinedTaskEstimator::default()

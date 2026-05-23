@@ -21,7 +21,7 @@ pub mod coordinator_to_worker_msg {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerToCoordinatorMsg {
-    #[prost(oneof = "worker_to_coordinator_msg::Inner", tags = "1")]
+    #[prost(oneof = "worker_to_coordinator_msg::Inner", tags = "1, 2, 3")]
     pub inner: ::core::option::Option<worker_to_coordinator_msg::Inner>,
 }
 /// Nested message and enum types in `WorkerToCoordinatorMsg`.
@@ -34,6 +34,12 @@ pub mod worker_to_coordinator_msg {
         /// metrics\[i\] is the set of metrics for plan node i in pre-order traversal order.
         #[prost(message, tag = "1")]
         TaskMetrics(super::TaskMetrics),
+        /// Load information reported by a task. This information is used for dynamically
+        /// sizing the number of workers involved in a query.
+        #[prost(message, tag = "2")]
+        LoadInfo(super::LoadInfo),
+        #[prost(bool, tag = "3")]
+        LoadInfoEos(bool),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -48,6 +54,21 @@ pub struct TaskMetrics {
     /// was fed by the coordinator to the worker.
     #[prost(message, optional, tag = "2")]
     pub task_metrics: ::core::option::Option<MetricsSet>,
+}
+/// Load information reported for a specific partition with information about this
+/// amount of data flowing through the plan.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct LoadInfo {
+    /// The partition index to which this message belongs to.
+    #[prost(uint64, tag = "1")]
+    pub partition: u64,
+    /// Tha amount of bytes ready to be returned.
+    #[prost(uint64, tag = "2")]
+    pub bytes_ready: u64,
+    /// The estimated velocity at which data will flow through the node. If all the bytes were
+    /// already accumulated, they will be reported by `bytes_ready`, and this field will be 0.
+    #[prost(uint64, tag = "3")]
+    pub bytes_per_second: u64,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetWorkerInfoRequest {}
@@ -131,6 +152,12 @@ pub struct ExecuteTaskRequest {
     /// The end of the partition range of the specified task that is going to be executed.
     #[prost(uint64, tag = "3")]
     pub target_partition_end: u64,
+    /// The amount of partitions per task that are going to consume from this task.
+    #[prost(uint64, tag = "4")]
+    pub consumer_partitions: u64,
+    /// The amount of tasks that are going to consume from this task.
+    #[prost(uint64, tag = "5")]
+    pub consumer_task_count: u64,
 }
 /// A key that uniquely identifies a task in a query.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

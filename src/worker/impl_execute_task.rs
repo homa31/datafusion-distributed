@@ -61,7 +61,10 @@ pub(crate) async fn execute_local_task(
         .map_err(DataFusionError::Shared)?;
     task_data.task_data_metrics.mark_execution_started_once();
 
-    let plan = task_data.plan;
+    let plan = task_data.scaled_up_plan(
+        body.consumer_partitions as usize,
+        body.consumer_task_count as usize,
+    )?;
     let task_ctx = task_data.task_ctx;
     let d_cfg = DistributedConfig::from_config_options(task_ctx.session_config().options())?;
     let d_ctx = DistributedTaskContext::from_ctx(&task_ctx).as_ref().clone();

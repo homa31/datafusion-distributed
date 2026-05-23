@@ -88,7 +88,7 @@ pub(super) fn prepare_static_plan(
             // Spawn a task that sends the subplan to the chosen URL.
             // There will be as many spawned tasks as workers.
             let (tx, worker_rx) = spawner.send_plan_task(Arc::clone(ctx), i, routed_url)?;
-            spawner.metrics_collection_task(i, worker_rx);
+            spawner.load_info_and_metrics_collection_task(i, worker_rx);
             spawner.work_unit_feed_task(Arc::clone(ctx), i, tx)?;
         }
 
@@ -102,6 +102,7 @@ pub(super) fn prepare_static_plan(
     })?;
     Ok(PreparedPlan {
         head_stage: prepared.data,
+        final_plan: Arc::clone(base_plan),
         join_set,
     })
 }

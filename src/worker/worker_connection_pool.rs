@@ -88,6 +88,8 @@ impl WorkerConnectionPool {
         input_stage: &RemoteStage,
         target_partitions: Range<usize>,
         target_task: usize,
+        consumer_partitions: usize,
+        consumer_task_count: usize,
         ctx: &Arc<TaskContext>,
     ) -> Result<&(dyn WorkerConnection + Sync + Send)> {
         let Some(worker_connection) = self.connections.get(target_task) else {
@@ -109,6 +111,8 @@ impl WorkerConnectionPool {
                     input_stage,
                     target_partitions,
                     target_task,
+                    consumer_partitions,
+                    consumer_task_count,
                     lw_ctx,
                     &self.metrics,
                 )) as Box<_>)
@@ -118,6 +122,8 @@ impl WorkerConnectionPool {
                     input_stage,
                     target_partitions,
                     target_task,
+                    consumer_partitions,
+                    consumer_task_count,
                     ctx,
                     &self.metrics,
                 )
@@ -173,6 +179,8 @@ impl RemoteWorkerConnection {
         input_stage: &RemoteStage,
         target_partition_range: Range<usize>,
         target_task: usize,
+        consumer_partitions: usize,
+        consumer_task_count: usize,
         ctx: &Arc<TaskContext>,
         metrics: &ExecutionPlanMetricsSet,
     ) -> Result<Self> {
@@ -222,6 +230,8 @@ impl RemoteWorkerConnection {
                     stage_id: input_stage.num as u64,
                     task_number: target_task as u64,
                 }),
+                consumer_partitions: consumer_partitions as u64,
+                consumer_task_count: consumer_task_count as u64,
             },
         );
 
@@ -426,6 +436,8 @@ impl LocalWorkerConnection {
         input_stage: &RemoteStage,
         target_partition_range: Range<usize>,
         target_task: usize,
+        consumer_partitions: usize,
+        consumer_task_count: usize,
         lw_ctx: Arc<LocalWorkerContext>,
         metrics: &ExecutionPlanMetricsSet,
     ) -> Self {
@@ -446,6 +458,8 @@ impl LocalWorkerConnection {
                 task_key: Some(task_key.clone()),
                 target_partition_start: partition_i as u64,
                 target_partition_end: (partition_i + 1) as u64,
+                consumer_partitions: consumer_partitions as u64,
+                consumer_task_count: consumer_task_count as u64,
             };
 
             let task_data_entries = Arc::clone(&lw_ctx.task_data_entries);

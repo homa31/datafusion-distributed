@@ -1,4 +1,5 @@
 use crate::common::deserialize_uuid;
+use crate::execution_plans::SamplerExec;
 use crate::work_unit_feed::{RemoteWorkUnitFeedRegistry, set_work_unit_received_time};
 use crate::worker::LocalWorkerContext;
 use crate::worker::generated::worker::coordinator_to_worker_msg::Inner;
@@ -17,9 +18,10 @@ use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 use datafusion_proto::protobuf::PhysicalPlanNode;
+use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt, TryStreamExt};
-use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
 use tonic::{Request, Response, Status, Streaming};
 use url::Url;
@@ -55,6 +57,7 @@ impl Worker {
         }
 
         let (metrics_tx, metrics_rx) = oneshot::channel();
+        let mut load_info_rxs = vec![];
 
         let task_data = || async {
             let headers = grpc_headers.into_headers();
@@ -98,11 +101,14 @@ impl Worker {
             for hook in self.hooks.on_plan.iter() {
                 plan = hook(plan)
             }
+            load_info_rxs =
+                SamplerExec::kick_off_first_sampler(Arc::clone(&plan), Arc::clone(&task_ctx))?;
 
             // Initialize partition count to the number of partitions in the stage
             let total_partitions = plan.properties().partitioning.partition_count();
             Ok::<_, DataFusionError>(TaskData {
-                plan,
+                base_plan: plan,
+                scaled_up_plan: Arc::new(OnceLock::new()),
                 task_ctx,
                 num_partitions_remaining: Arc::new(AtomicUsize::new(total_partitions)),
                 metrics_tx: match collect_metrics {
@@ -140,19 +146,35 @@ impl Worker {
             }
         });
 
+        let load_info_stream = FuturesUnordered::from_iter(load_info_rxs)
+            .map(|load_info_or_err| match load_info_or_err {
+                Ok(load_info) => Ok(WorkerToCoordinatorMsg {
+                    inner: Some(worker_to_coordinator_msg::Inner::LoadInfo(load_info)),
+                }),
+                Err(err) => Err(Status::internal(err.to_string())),
+            })
+            .chain(futures::stream::once(async move {
+                Ok(WorkerToCoordinatorMsg {
+                    inner: Some(worker_to_coordinator_msg::Inner::LoadInfoEos(true)),
+                })
+            }));
+
         // Stream back the metrics once the task finishes executing.
         // The oneshot receiver resolves when impl_execute_task sends the collected
         // metrics after all partitions have finished or been dropped.
         let metrics_stream = metrics_rx.into_stream();
         let metrics_stream = metrics_stream.filter_map(|task_metrics| async move {
             match task_metrics {
-                Ok(task_metrics) => Some(WorkerToCoordinatorMsg {
+                Ok(task_metrics) => Some(Ok(WorkerToCoordinatorMsg {
                     inner: Some(worker_to_coordinator_msg::Inner::TaskMetrics(task_metrics)),
-                }),
+                })),
                 Err(_) => None, // channel dropped without sending any message
             }
         });
-        Ok(Response::new(metrics_stream.map(Ok).boxed()))
+
+        Ok(Response::new(
+            futures::stream::select(load_info_stream, metrics_stream).boxed(),
+        ))
     }
 }
 

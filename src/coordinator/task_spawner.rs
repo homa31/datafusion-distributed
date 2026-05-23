@@ -223,17 +223,19 @@ impl<'a> CoordinatorToWorkerTaskSpawner<'a> {
         Ok((coordinator_to_worker_tx, worker_to_coordinator_rx))
     }
 
-    pub(super) fn metrics_collection_task(
+    pub(super) fn load_info_and_metrics_collection_task(
         &mut self,
         task_i: usize,
         mut worker_to_coordinator_rx: UnboundedReceiver<pb::WorkerToCoordinatorMsg>,
-    ) {
+    ) -> UnboundedReceiver<pb::LoadInfo> {
         let task_key = TaskKey {
             query_id: serialize_uuid(&self.query_id),
             stage_id: self.stage_id as u64,
             task_number: task_i as u64,
         };
         let task_metrics = self.task_metrics.clone();
+        let (load_info_tx, load_info_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut load_info_tx_opt = Some(load_info_tx);
         #[allow(clippy::disallowed_methods)]
         tokio::spawn(async move {
             while let Some(msg) = worker_to_coordinator_rx.recv().await {
@@ -245,9 +247,18 @@ impl<'a> CoordinatorToWorkerTaskSpawner<'a> {
                             task_metrics.insert(task_key.clone(), pre_order_metrics);
                         }
                     }
+                    pb::worker_to_coordinator_msg::Inner::LoadInfo(load_info) => {
+                        if let Some(tx) = &load_info_tx_opt {
+                            let _ = tx.send(load_info);
+                        }
+                    }
+                    pb::worker_to_coordinator_msg::Inner::LoadInfoEos(_) => {
+                        let _ = load_info_tx_opt.take();
+                    }
                 }
             }
         });
+        load_info_rx
     }
 
     /// Launches the task that based on the different local [WorkUnitFeedExec] nodes, sends their
